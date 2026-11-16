@@ -54,6 +54,8 @@ def parse_args(argv=None):
     parser.add_argument('--tp', type=int, choices=[1, 2, 4, 8], default=1)
     parser.add_argument('--cuda-graph', action='store_true')
     parser.add_argument('--max-num-seqs', type=int, default=16)
+    parser.add_argument('--max-active-requests', type=int, default=None,
+                        help='cap KV-resident requests, including partial prefill; omitted means no admission cap')
     parser.add_argument('--token-budget', type=int, default=1024)
     parser.add_argument('--max-model-len', type=int, default=4096)
     parser.add_argument('--gpu-memory-utilization', type=float, default=0.60)
@@ -71,6 +73,8 @@ def parse_args(argv=None):
                  'max_num_seqs', 'token_budget', 'max_model_len']:
         if getattr(args, name) < 1:
             parser.error('--' + name.replace('_', '-') + ' must be positive')
+    if args.max_active_requests is not None and args.max_active_requests < 1:
+        parser.error('--max-active-requests must be positive')
     for name in ['arrival_rate', 'gpu_sample_interval', 'max_seconds']:
         value = getattr(args, name)
         if not math.isfinite(value) or value < 0 or (name == 'max_seconds' and value == 0):
@@ -251,6 +255,7 @@ class Recorder:
     def state(scheduler):
         manager = scheduler.block_manager
         return {'waiting': len(scheduler.waiting), 'running': len(scheduler.running),
+                'active': scheduler.num_active_requests,
                 'kv_free': len(manager.free_block_ids), 'kv_total': len(manager.blocks)}
 
     @contextmanager
@@ -307,6 +312,7 @@ class Recorder:
                 self.active['phase'] = 'prefill' if is_prefill else 'decode'
                 self.active['scheduled_tokens'] = sum(seq.num_scheduled_tokens for seq in seqs)
                 self.active['kv_free_scheduled'] = len(scheduler.block_manager.free_block_ids)
+                self.active['active_scheduled'] = scheduler.num_active_requests
                 self.active['request_ids'] = [self.by_seq[seq.seq_id]['request_id'] for seq in seqs]
                 self.scheduled = [(seq, seq.num_cached_tokens, seq.num_scheduled_tokens) for seq in seqs]
                 for seq in seqs:
@@ -468,6 +474,7 @@ def main(argv=None):
         engine = LLM(str(Path(args.model).expanduser().resolve()), tensor_parallel_size=args.tp,
                      enforce_eager=not args.cuda_graph, max_model_len=args.max_model_len,
                      max_num_batched_tokens=args.token_budget, max_num_seqs=args.max_num_seqs,
+                     max_active_requests=args.max_active_requests,
                      gpu_memory_utilization=args.gpu_memory_utilization)
         metadata['initialization_s'] = time.perf_counter() - started
         capacity = len(engine.scheduler.block_manager.blocks)

@@ -60,6 +60,10 @@ class Scheduler:
         self.max_num_batched_tokens = 2
         self.block_size = 2
 
+    @property
+    def num_active_requests(self):
+        return sum(bool(seq.block_table) for seq in (*self.waiting, *self.running))
+
     def add(self, seq):
         self.waiting.append(seq)
 
@@ -146,6 +150,10 @@ class RecordingTests(unittest.TestCase):
         recorder.origin = clock()
         replay(engine, data, recorder, lambda count: count, 10, clock, clock.sleep)
         self.assertEqual([step['valid_output_tokens'] for step in recorder.steps], [0, 1, 1])
+        self.assertEqual([step['active_before'] for step in recorder.steps], [0, 1, 1])
+        self.assertEqual([step['active_scheduled'] for step in recorder.steps], [1, 1, 1])
+        self.assertEqual([step['active_after'] for step in recorder.steps], [1, 1, 0])
+        self.assertEqual(recorder.steps[0]['running_after'], 0)
         self.assertEqual([event['event'] for event in recorder.events], ['enqueue', 'token', 'token', 'finish'])
         self.assertEqual(recorder.requests[0]['status'], 'completed')
         self.assertEqual(recorder.state(engine.scheduler)['kv_free'], 100)
@@ -154,6 +162,7 @@ class RecordingTests(unittest.TestCase):
         summary = summarize(recorder.requests, recorder.steps, clock())
         self.assertEqual(summary['counts']['output_tokens'], 2)
         self.assertEqual(summary['latency_ms']['itl_pooled']['count'], 1)
+        self.assertEqual(summary['admission']['peak_active_requests'], 1)
 
     def test_blocked_injection_is_included_in_arrival_ttft(self):
         clock = Clock()

@@ -165,6 +165,14 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("re-allocation", result["cache"]["prefix_cache_eligible_token_definition"])
         self.assertIsNone(summarize([request()], [], 1)["cache"]["prefix_cache_hit_token_fraction"])
 
+    def test_active_peak_includes_partial_prefill_and_finish_within_one_step(self):
+        result = summarize([request()], [step(active_before=0, active_scheduled=1,
+                                             active_after=0, running_before=0,
+                                             running_after=0)], 1)
+        self.assertEqual(result["admission"]["peak_active_requests"], 1)
+        legacy = summarize([request()], [step()], 1)
+        self.assertIsNone(legacy["admission"]["peak_active_requests"])
+
     def test_queue_distributions_state_snapshot_not_time_weighted_sampling(self):
         steps = [step(waiting_before=10, end_s=1), step(waiting_before=0, end_s=100)]
         result = summarize([], steps, 100)

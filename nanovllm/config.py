@@ -16,8 +16,13 @@ class Config:
     eos: int = -1
     kvcache_block_size: int = 256
     num_kvcache_blocks: int = -1
+    max_active_requests: int | None = None  # KV-resident requests, including partial prefill
 
     def __post_init__(self):
+        if self.max_active_requests is not None and (
+            type(self.max_active_requests) is not int or self.max_active_requests <= 0
+        ):
+            raise ValueError("max_active_requests must be a positive integer or None")
         assert os.path.isdir(self.model)
         assert self.kvcache_block_size % 256 == 0
         assert 1 <= self.tensor_parallel_size <= 8

@@ -27,7 +27,7 @@ def temporary_results():
 
 class RunLifecycleTests(unittest.TestCase):
     def run_main(self, temporary_directory, *, exit_error=None, constructor_error=None,
-                 active_children=None):
+                 active_children=None, extra_args=()):
         output = Path(temporary_directory) / "recording"
         engine = SimpleNamespace(
             scheduler=SimpleNamespace(block_manager=SimpleNamespace(blocks=list(range(16)))),
@@ -76,7 +76,7 @@ class RunLifecycleTests(unittest.TestCase):
                 "--short-input", "1", "--long-input", "1", "--output-tokens", "1",
                 "--arrival-rate", "0", "--warmup-runs", "0", "--gpu-sample-interval", "0",
                 "--tp", "2",
-            ])
+            ] + list(extra_args))
 
         return SimpleNamespace(
             result=result,
@@ -101,6 +101,13 @@ class RunLifecycleTests(unittest.TestCase):
         run.sampler.start.assert_called_once_with()
         run.sampler.stop.assert_called_once_with()
         run.replay.assert_called_once()
+        self.assertIsNone(run.constructor.call_args.kwargs["max_active_requests"])
+
+    def test_admission_cap_reaches_engine_configuration(self):
+        with temporary_results() as temporary_directory:
+            run = self.run_main(temporary_directory, extra_args=["--max-active-requests", "16"])
+        self.assertEqual(run.result, 0)
+        self.assertEqual(run.constructor.call_args.kwargs["max_active_requests"], 16)
 
     def test_exit_failure_is_reflected_in_final_summary_and_metadata(self):
         with temporary_results() as temporary_directory:

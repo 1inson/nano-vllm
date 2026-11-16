@@ -204,6 +204,9 @@ def summarize(requests: list[dict], steps: list[dict], duration_s: float, *,
     used_blocks = [row["kv_total"] - row[key] for row in steps
                    for key in free_keys
                    if row.get("kv_total") is not None and row.get(key) is not None]
+    active_requests = [row[key] for row in steps
+                       for key in ("active_before", "active_scheduled", "active_after")
+                       if row.get(key) is not None]
     return {
         "schema_version": 1,
         "measurement_window": {
@@ -224,6 +227,11 @@ def summarize(requests: list[dict], steps: list[dict], duration_s: float, *,
         "queues": {
             key: percentiles(row[key] for row in steps if row.get(key) is not None)
             for key in ("waiting_before", "waiting_after", "running_before", "running_after")
+        },
+        "admission": {
+            "peak_active_requests": max(active_requests) if active_requests else None,
+            "active_request_definition": "requests holding KV, including partial prefill in waiting",
+            "sampling": "before scheduling, after scheduling, and after execution snapshots",
         },
         "cache": {
             "minimum_free_blocks": min(free_blocks) if free_blocks else None,
